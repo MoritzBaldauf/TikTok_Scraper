@@ -7,7 +7,7 @@ credentials/
 *.env
 *.pem
 *.key
-*.py
+
 
 # Ignore Python cache files
 # Python cache files
