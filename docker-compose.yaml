@@ -1,0 +1,16 @@
+version: '3'
+services:
+  tiktok-scraper:
+    build: .
+    container_name: tiktok-scraper
+    volumes:
+      - ./tiktok_data:/app/tiktok_data
+      - ./credentials.json:/app/credentials.json:ro
+    environment:
+      - TZ=Asia/Singapore  # Set your timezone
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

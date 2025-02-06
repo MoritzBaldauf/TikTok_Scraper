@@ -1,0 +1,20 @@
+# Ignore Data folder and its contents
+tiktok_data/
+Old_test_files/
+
+# Credentials and sensitive data
+credentials/
+*.env
+*.pem
+*.key
+*.py
+
+# Ignore Python cache files
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+
