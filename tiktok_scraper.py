@@ -104,6 +104,10 @@ class TikTokScraper:
                         
                     video_data = self._extract_video_data(element)
                     if video_data:
+                        # Skip pinned videos if configured to do so
+                        if EXCLUDE_PINNED_VIDEOS and video_data['is_pinned']:
+                            continue
+                            
                         # Add scrape timestamp to video data
                         video_data['scrape_timestamp'] = current_time.strftime('%Y-%m-%d %H:%M:%S')
                         videos.append(video_data)
@@ -129,6 +133,7 @@ class TikTokScraper:
         except Exception as e:
             print(f"Error scraping videos: {str(e)}")
             return []
+        
 
     def _extract_follower_count(self):
         """Extract follower count with retry logic"""
@@ -263,26 +268,91 @@ class TikTokScraper:
         except Exception as e:
             print(f"Error extracting video comments: {str(e)}")
             return 0
-
     def _extract_shares_from_page(self, page):
-        """Extract shares count using the exact TikTok selector"""
+        """Extract shares count with shorter timeout and fallback mechanisms"""
         try:
-            # Wait for the specific share count element with the exact class
-            shares_element = page.wait_for_selector('strong[data-e2e="share-count"].css-n6wn07-StrongText', timeout=3000)
+            # Use a shorter timeout specifically for shares to prevent hanging
+            SHARE_TIMEOUT = 5000  # 5 seconds timeout for share extraction
             
-            if shares_element:
-                shares_text = shares_element.text_content().strip()
-                logging.debug(f"Found share count: {shares_text}")
-                return self._convert_count_to_number(shares_text)
-                
-            # Fallback if the element is not found
-            logging.warning("Share count element not found")
+            # Try multiple selector patterns
+            selectors = [
+                'strong[data-e2e="share-count"]',  # Basic selector
+                'div[data-e2e="video-share"] strong',  # Nested selector
+                '[data-e2e="share-count"]',  # Fallback selector
+            ]
+            
+            for selector in selectors:
+                try:
+                    # Use shorter timeout and state='attached' instead of 'visible'
+                    shares_element = page.wait_for_selector(
+                        selector, 
+                        timeout=SHARE_TIMEOUT,
+                        state='attached'  # Less strict than 'visible'
+                    )
+                    
+                    if shares_element:
+                        # Get the text content and clean it
+                        shares_text = shares_element.text_content().strip()
+                        
+                        # Skip if we got the "Share" label instead of a number
+                        if shares_text.lower() == 'share':
+                            continue
+                            
+                        # Skip if we got an empty string
+                        if not shares_text:
+                            continue
+                        
+                        # Try to find a number in the text
+                        import re
+                        number_match = re.search(r'[\d.,KkMmBb]+', shares_text)
+                        if number_match:
+                            shares_text = number_match.group()
+                            share_count = self._convert_count_to_number(shares_text)
+                            if share_count is not None and share_count >= 0:
+                                return share_count
+                                
+                except Exception as selector_error:
+                    logging.debug(f"Selector '{selector}' failed: {str(selector_error)}")
+                    continue
+            
+            # If no selector worked, return 0 without extensive retries
+            logging.warning("Share count not found, defaulting to 0")
             return 0
-        
+            
         except Exception as e:
             logging.error(f"Error extracting video shares: {str(e)}")
             return 0
-    
+
+    def _convert_count_to_number(self, count_text):
+        """Convert count text to number with improved handling"""
+        try:
+            if not count_text:
+                return 0
+                
+            # Remove any spaces and handle international formatting
+            count_text = count_text.replace(' ', '').replace(',', '').strip()
+            
+            # Skip if we somehow got a non-numeric text
+            if count_text.lower() == 'share':
+                return 0
+                
+            # Convert K, M, B suffixes to actual numbers (case insensitive)
+            count_text = count_text.upper()
+            if 'K' in count_text:
+                return float(count_text.replace('K', '')) * 1000
+            elif 'M' in count_text:
+                return float(count_text.replace('M', '')) * 1000000
+            elif 'B' in count_text:
+                return float(count_text.replace('B', '')) * 1000000000
+            else:
+                # Remove any non-numeric characters except decimal points
+                cleaned_text = ''.join(c for c in count_text if c.isdigit() or c == '.')
+                return float(cleaned_text) if cleaned_text else 0
+                
+        except (ValueError, AttributeError) as e:
+            logging.error(f"Error converting count text '{count_text}': {str(e)}")
+            return 0
+        
     def _extract_description_and_hashtags_from_page(self, page):
         """Extract description and hashtags with improved reliability"""
         try:
@@ -347,26 +417,6 @@ class TikTokScraper:
             print(f"Error during scroll: {str(e)}")
             return False
 
-    def _convert_count_to_number(self, count_text):
-        """Convert count text to number with improved handling"""
-        try:
-            if not count_text:
-                return 0
-                
-            # Remove any spaces and handle international formatting
-            count_text = count_text.replace(' ', '').replace(',', '')
-            
-            if 'K' in count_text.upper():
-                return float(count_text.upper().replace('K', '')) * 1000
-            elif 'M' in count_text.upper():
-                return float(count_text.upper().replace('M', '')) * 1000000
-            elif 'B' in count_text.upper():
-                return float(count_text.upper().replace('B', '')) * 1000000000
-            else:
-                return float(count_text)
-        except (ValueError, AttributeError):
-            print(f"Error converting count text: {count_text}")
-            return 0
 
     def _save_account_metrics(self, metrics):
         """Save account metrics to CSV with error handling"""
