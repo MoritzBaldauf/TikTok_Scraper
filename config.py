@@ -23,7 +23,5 @@ EXCLUDE_PINNED_VIDEOS = True  # Set to True to exclude pinned videos from collec
 
 SHEETS_CREDS = "./credentials/credentials.json"  # Path to your Google Sheets credentials
 SPREADSHEET_ID = "1gPiwtjbz7_sRDrUAfmzqWRI2IlRUwoeIFQ9gIPosJQs"  # Your Google Sheets spreadsheet ID
-ACCOUNTS = ["boom.malaysia"]
-            
- #"luminews.my", "boom.malaysia", "carlsonchia_oe", "ashhryyyyy", "dagangnews", "ohbulanofficial", "majoritiofficial", "wekaypoh"]  # Your TikTok accounts
+ACCOUNTS = ["luminews.my", "boom.malaysia", "carlsonchia_oe", "ashhryyyyy", "dagangnews", "ohbulanofficial", "majoritiofficial", "wekaypoh"]  # Your TikTok accounts
 INTERVAL_HOURS = 12  # Hours between runs
