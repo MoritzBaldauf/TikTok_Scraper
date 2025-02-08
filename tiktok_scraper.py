@@ -20,13 +20,55 @@ class TikTokScraper:
         os.makedirs(self.account_data_dir, exist_ok=True)
         
     def start_browser(self):
-        """Initialize the browser with Playwright and set cookies"""
+        """Initialize the browser with enhanced anti-detection measures"""
         self.playwright = sync_playwright().start()
-        self.browser = self.playwright.chromium.launch(headless=HEADLESS_MODE)
+        
+        # Enhanced browser arguments
+        browser_args = [
+            '--disable-blink-features=AutomationControlled',
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--disable-site-isolation-trials',
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins',
+            '--disable-site-isolation-trials',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--no-sandbox',
+            '--ignore-certificate-errors'
+        ]
+        
+        self.browser = self.playwright.chromium.launch(
+            headless=HEADLESS_MODE,
+            args=browser_args
+        )
+        
+        # Enhanced context configuration
         self.context = self.browser.new_context(
             user_agent=USER_AGENT,
-            viewport={'width': 1280, 'height': 800}
+            viewport={'width': 1280, 'height': 800},
+            device_scale_factor=1,
+            is_mobile=False,
+            has_touch=False,
+            locale='en-US',
+            timezone_id='America/New_York',
+            permissions=['geolocation'],
+            java_script_enabled=True,
+            bypass_csp=True,
+            color_scheme='light',
+            reduced_motion='no-preference',
+            forced_colors='none',
+            accept_downloads=False
         )
+        
+        # Modify navigator properties
+        self.context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+        """)
         
         # Get cookies from the separate configuration file
         cookies = get_tiktok_cookies()
@@ -34,63 +76,63 @@ class TikTokScraper:
         
         # Create new page after setting cookies
         self.page = self.context.new_page()
+        
+        # Add additional page configurations
+        self.page.set_extra_http_headers({
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1'
+        })
+
 
     def scrape_account_metrics(self):
-        """Scrape basic account information with retries and include scraping timestamp"""
-        max_retries = 3
-        retry_count = 0
-        
-        while retry_count < max_retries:
-            try:
-                self.page.goto(self.account_url, timeout=DEFAULT_TIMEOUT)
-                self.page.wait_for_load_state('networkidle')
+        """Scrape basic account information with session rotation"""
+        if not self.load_page_with_retry(self.account_url):
+            logging.error("Failed to load account page after all retries")
+            return None
+            
+        try:
+            # Add some random delays and movements before extracting data
+            self._simulate_human_behavior()
+            
+            current_time = datetime.now()
+            metrics = {
+                'date': current_time.strftime('%Y-%m-%d'),
+                'scrape_timestamp': current_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'account_name': self.account_name,
+                'follower_count': self._extract_follower_count(),
+                'total_likes': self._extract_total_likes()
+            }
+            
+            if all(value != 0 for value in metrics.values() if isinstance(value, (int, float))):
+                self._save_account_metrics(metrics)
+                return metrics
                 
-                # Wait for key elements
-                self.page.wait_for_selector('strong[data-e2e="followers-count"]', timeout=DEFAULT_TIMEOUT)
-                
-                current_time = datetime.now()
-                metrics = {
-                    'date': current_time.strftime('%Y-%m-%d'),
-                    'scrape_timestamp': current_time.strftime('%Y-%m-%d %H:%M:%S'),
-                    'account_name': self.account_name,
-                    'follower_count': self._extract_follower_count(),
-                    'total_likes': self._extract_total_likes()
-                }
-                
-                if all(value != 0 for value in metrics.values() if isinstance(value, (int, float))):
-                    self._save_account_metrics(metrics)
-                    return metrics
-                    
-                raise Exception("Failed to get complete metrics")
-                
-            except Exception as e:
-                retry_count += 1
-                if retry_count == max_retries:
-                    print(f"Failed to scrape account metrics after {max_retries} attempts: {str(e)}")
-                    return None
-                print(f"Retry {retry_count} for account metrics")
-                time.sleep(2)
-
+            logging.error("Failed to get complete metrics")
+            return None
+            
+        except Exception as e:
+            logging.error(f"Error scraping account metrics: {str(e)}")
+            return None
     def scrape_recent_videos(self):
-        """Scrape videos with improved reliability"""
+        """Scrape videos with session rotation support"""
         try:
             videos = []
             current_time = datetime.now()
             
-            # First wait for any video to appear with retries
-            max_retries = 3
-            retry_count = 0
-            while retry_count < max_retries:
-                try:
-                    self.page.wait_for_selector('div[data-e2e="user-post-item"]', timeout=DEFAULT_TIMEOUT)
-                    break
-                except Exception as e:
-                    retry_count += 1
-                    if retry_count == max_retries:
-                        print(f"Failed to load any videos after {max_retries} attempts")
-                        return []
-                    print(f"Retry {retry_count} for loading videos")
-                    time.sleep(2)
+            # Ensure page is loaded with content
+            if not self.load_page_with_retry(self.account_url):
+                logging.error("Failed to load videos page after all retries")
+                return []
+                
+            # Add some random delays and movements
+            self._simulate_human_behavior()
             
             # Scroll a few times to load more videos
             scroll_attempts = 3
@@ -131,9 +173,23 @@ class TikTokScraper:
             return videos
             
         except Exception as e:
-            print(f"Error scraping videos: {str(e)}")
+            logging.error(f"Error scraping videos: {str(e)}")
             return []
+
+    def _simulate_human_behavior(self):
+        """Simulate human-like behavior to avoid detection"""
+        # Random mouse movements
+        for _ in range(random.randint(3, 7)):
+            self.page.mouse.move(
+                random.randint(100, 800),
+                random.randint(100, 600),
+                steps=random.randint(5, 10)
+            )
+            time.sleep(random.uniform(0.1, 0.3))
         
+        # Random scrolling
+        self.page.mouse.wheel(0, random.randint(300, 700))
+        time.sleep(random.uniform(0.5, 1.5))
 
     def _extract_follower_count(self):
         """Extract follower count with retry logic"""
@@ -416,7 +472,73 @@ class TikTokScraper:
         except Exception as e:
             print(f"Error during scroll: {str(e)}")
             return False
+        
+    def _check_content_loaded(self) -> bool:
+        """Check if the main content has loaded successfully"""
+        try:
+            # Look for key elements that indicate content is loaded
+            indicators = [
+                'div[data-e2e="user-post-item"]',  # Video items
+                'strong[data-e2e="followers-count"]',  # Follower count
+                'strong[data-e2e="likes-count"]'  # Likes count
+            ]
+            
+            # Check if at least one indicator is present
+            for selector in indicators:
+                if self.page.query_selector(selector):
+                    return True
+            
+            # Also check for bot detection or empty content indicators
+            bot_detection_signs = [
+                'div[class*="verify-bar"]',
+                'div[class*="captcha"]',
+                'iframe[src*="verify"]'
+            ]
+            
+            for selector in bot_detection_signs:
+                if self.page.query_selector(selector):
+                    logging.warning("Bot detection elements found")
+                    return False
+            
+            return False
+            
+        except Exception as e:
+            logging.error(f"Error checking content: {str(e)}")
+            return False
+    def rotate_browser_session(self):
+        """Close current browser session and start a new one"""
+        logging.info("Rotating browser session...")
+        self.cleanup()
+        time.sleep(random.uniform(2, 5))  # Wait before starting new session
+        self.start_browser()
 
+    def load_page_with_retry(self, url, max_retries=3):
+        """Load page with session rotation if content doesn't appear"""
+        for attempt in range(max_retries):
+            try:
+                # Go to the page
+                self.page.goto(url, timeout=DEFAULT_TIMEOUT)
+                self.page.wait_for_load_state('networkidle')
+                
+                # Wait a bit and check if content loaded
+                time.sleep(random.uniform(2, 4))
+                if self._check_content_loaded():
+                    return True
+                
+                logging.warning(f"Content not loaded properly on attempt {attempt + 1}")
+                
+                if attempt < max_retries - 1:
+                    logging.info("Rotating browser session and retrying...")
+                    self.rotate_browser_session()
+                    continue
+                    
+            except Exception as e:
+                logging.error(f"Error loading page on attempt {attempt + 1}: {str(e)}")
+                if attempt < max_retries - 1:
+                    self.rotate_browser_session()
+                    continue
+                
+        return False
 
     def _save_account_metrics(self, metrics):
         """Save account metrics to CSV with error handling"""
@@ -488,9 +610,13 @@ class TikTokScraper:
     def cleanup(self):
         """Close browser and cleanup with error handling"""
         try:
+            if hasattr(self, 'page'):
+                self.page.close()
+            if hasattr(self, 'context'):
+                self.context.close()
             if hasattr(self, 'browser'):
                 self.browser.close()
             if hasattr(self, 'playwright'):
                 self.playwright.stop()
         except Exception as e:
-            print(f"Error during cleanup: {str(e)}")
+            logging.error(f"Error during cleanup: {str(e)}")

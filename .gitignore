@@ -1,6 +1,7 @@
 # Ignore Data folder and its contents
 tiktok_data/
 Old_test_files/
+API/
 
 # Credentials and sensitive data
 credentials/

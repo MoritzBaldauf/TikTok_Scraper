@@ -18,10 +18,14 @@ NEW_VIDEO_THRESHOLD = 60  # Hours to consider a video as "new"
 MIN_DELAY = 1  # Minimum delay between requests in seconds
 MAX_DELAY = 3  # Maximum delay between requests in seconds
 
+# Session managment
+MAX_SESSION_RETRIES = 3  # Maximum number of session rotations per request
+SESSION_ROTATION_DELAY = (2, 5)  # Random delay range between rotations in seconds
+
 # Content filtering
 EXCLUDE_PINNED_VIDEOS = True  # Set to True to exclude pinned videos from collection
 
 SHEETS_CREDS = "./credentials/credentials.json"  # Path to your Google Sheets credentials
 SPREADSHEET_ID = "1gPiwtjbz7_sRDrUAfmzqWRI2IlRUwoeIFQ9gIPosJQs"  # Your Google Sheets spreadsheet ID
-ACCOUNTS = ["luminews.my", "boom.malaysia", "carlsonchia_oe", "ashhryyyyy", "dagangnews", "ohbulanofficial", "majoritiofficial", "wekaypoh"]  # Your TikTok accounts
+ACCOUNTS = ["luminews.my"] #, "boom.malaysia", "carlsonchia_oe", "ashhryyyyy", "dagangnews", "ohbulanofficial", "majoritiofficial", "wekaypoh"]  # Your TikTok accounts
 INTERVAL_HOURS = 12  # Hours between runs
