@@ -3,7 +3,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 import logging
 import time
@@ -38,19 +38,25 @@ class TikTokScraper:
             indicators = [
                 'div[data-e2e="user-post-item"]',  # Video items
                 'strong[data-e2e="followers-count"]',  # Follower count
-                'strong[data-e2e="likes-count"]'  # Likes count
+                'strong[data-e2e="likes-count"]',  # Likes count
+                'h3[data-e2e="user-title"]'  # Username
             ]
             
-            # Check if at least one indicator is present
+            found_elements = 0
             for selector in indicators:
                 if self.driver.find_elements(By.CSS_SELECTOR, selector):
-                    return True
+                    found_elements += 1
             
-            # Also check for bot detection or empty content indicators
+            # Return true if we found at least 2 indicators
+            if found_elements >= 2:
+                return True
+                
+            # Check for bot detection or empty content indicators
             bot_detection_signs = [
                 'div[class*="verify-bar"]',
                 'div[class*="captcha"]',
-                'iframe[src*="verify"]'
+                'iframe[src*="verify"]',
+                'div[class*="DivVerifyContainer"]'
             ]
             
             for selector in bot_detection_signs:
@@ -59,11 +65,11 @@ class TikTokScraper:
                     return False
             
             return False
-            
+                
         except Exception as e:
             logging.error(f"Error checking content: {str(e)}")
             return False
-
+        
     def rotate_browser_session(self):
         """Close current browser session and start a new one"""
         logging.info("Rotating browser session...")
@@ -280,12 +286,23 @@ class TikTokScraper:
             # Get video page metrics
             video_metrics = self._get_video_page_metrics(video_url)
             
+            # Calculate if video is new based on posting time
+            is_new = True  # Default to True if we can't determine
+            if video_metrics.get('posting_time'):
+                try:
+                    posting_time = datetime.strptime(video_metrics['posting_time'], '%Y-%m-%d %H:%M:%S')
+                    hours_old = (datetime.now() - posting_time).total_seconds() / 3600
+                    is_new = hours_old <= NEW_VIDEO_THRESHOLD
+                except Exception as e:
+                    logging.warning(f"Error calculating video age: {str(e)}")
+            
             # Combine all metrics
             metrics = {
                 'video_id': video_id,
                 'video_url': video_url,
                 'views': views,
                 'is_pinned': self._is_pinned(element),
+                'is_new': is_new,  # Add this field
                 **video_metrics
             }
             
@@ -294,7 +311,7 @@ class TikTokScraper:
         except Exception as e:
             logging.error(f"Error extracting video data: {str(e)}")
             return None
-
+        
     def _get_video_page_metrics(self, video_url):
         """Get metrics from video page"""
         try:
@@ -403,15 +420,35 @@ class TikTokScraper:
     def _extract_posting_time(self):
         """Extract posting time from video page"""
         try:
-            # Look for time element
-            time_element = self.driver.find_element(By.CSS_SELECTOR, 'span[data-e2e="browser-nickname"] + span')
-            if time_element:
-                return self._parse_time_text(time_element.text)
+            # Try multiple possible selectors for time element
+            selectors = [
+                'span[data-e2e="browser-nickname"] + span',
+                'span[data-e2e="video-meta-time"]',
+                'span.time-tag',  # Add more potential selectors
+                '[data-e2e="browser-nickname"]~span'
+            ]
+            
+            for selector in selectors:
+                try:
+                    time_element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    if time_element and time_element.text:
+                        return self._parse_time_text(time_element.text)
+                except Exception:
+                    continue
+                    
+            # If no selector works, try finding by text pattern
+            spans = self.driver.find_elements(By.TAG_NAME, 'span')
+            for span in spans:
+                text = span.text
+                if any(pattern in text.lower() for pattern in ['ago', 'hours', 'days', 'weeks']):
+                    return self._parse_time_text(text)
+                    
             return None
         except Exception as e:
             logging.error(f"Error extracting posting time: {str(e)}")
             return None
-
+        
+        
     def _parse_time_text(self, time_text):
         """Parse TikTok's relative time text into datetime"""
         try:

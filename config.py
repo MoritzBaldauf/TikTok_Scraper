@@ -15,12 +15,12 @@ SHARE_TIMEOUT = 5000
 NEW_VIDEO_THRESHOLD = 60  # Hours to consider a video as "new"
 
 # Rate limiting
-MIN_DELAY = 1  # Minimum delay between requests in seconds
-MAX_DELAY = 3  # Maximum delay between requests in seconds
+MIN_DELAY = 3  # Minimum delay between requests in seconds
+MAX_DELAY = 10  # Maximum delay between requests in seconds
 
 # Session managment
 MAX_SESSION_RETRIES = 3  # Maximum number of session rotations per request
-SESSION_ROTATION_DELAY = (2, 5)  # Random delay range between rotations in seconds
+SESSION_ROTATION_DELAY = (5, 15)  # Random delay range between rotations in seconds
 
 # Content filtering
 EXCLUDE_PINNED_VIDEOS = True  # Set to True to exclude pinned videos from collection
