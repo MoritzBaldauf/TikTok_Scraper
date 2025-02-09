@@ -55,12 +55,22 @@ class SheetsSync:
         df_clean = df.copy()
 
         # Format timestamps consistently
-        timestamp_columns = ['scrape_timestamp', 'posting_time']
+        timestamp_columns = ['scrape_timestamp', 'posting_time', 'first_seen', 'last_updated']
         for col in timestamp_columns:
             if col in df_clean.columns:
-                df_clean[col] = pd.to_datetime(df_clean[col]).dt.strftime('%Y-%m-%d %H:%M:%S')
+                try:
+                    # Handle various timestamp formats
+                    df_clean[col] = pd.to_datetime(df_clean[col]).apply(
+                        lambda x: x.strftime('%Y-%m-%d %H:%M:%S') if pd.notnull(x) else ''
+                    )
+                except Exception as e:
+                    logging.warning(f"Error formatting {col}: {str(e)}")
+                    # If conversion fails, try cleaning the data first
+                    df_clean[col] = df_clean[col].astype(str).apply(
+                        lambda x: x.split('.')[0] if '.' in x else x
+                    )
 
-        # Format URLs as hyperlinks - Fixed the quote issue
+        # Format URLs as hyperlinks
         if 'video_url' in df_clean.columns:
             df_clean['video_url'] = df_clean['video_url'].apply(
                 lambda x: f'=HYPERLINK("{x}")' if pd.notnull(x) else ''
@@ -72,7 +82,7 @@ class SheetsSync:
         # Convert boolean values to strings
         df_clean = df_clean.replace({True: 'TRUE', False: 'FALSE'})
         
-        # Convert all values to strings and strip any problematic characters
+        # Convert all values to strings and strip problematic characters
         for column in df_clean.columns:
             df_clean[column] = df_clean[column].astype(str).apply(
                 lambda x: x.strip() if isinstance(x, str) else x
@@ -103,7 +113,7 @@ class SheetsSync:
         return [headers] + values
 
     def update_video_metrics(self, account_name, csv_file):
-        """Sync video metrics to Google Sheets"""
+        """Sync video metrics to Google Sheets with improved timestamp handling"""
         sheet_name = f'{account_name}_videos'
         
         try:
@@ -112,6 +122,14 @@ class SheetsSync:
             
             # Read CSV data
             df = pd.read_csv(csv_file)
+            
+            # Clean timestamps before processing
+            timestamp_columns = ['scrape_timestamp', 'posting_time', 'first_seen', 'last_updated']
+            for col in timestamp_columns:
+                if col in df.columns:
+                    df[col] = df[col].astype(str).apply(
+                        lambda x: x.split('.')[0] if '.' in x else x
+                    )
             
             # Convert data to sheets format
             values = self.dataframe_to_sheets_values(df)
@@ -139,7 +157,7 @@ class SheetsSync:
         except Exception as e:
             logging.error(f"Error updating video metrics: {str(e)}")
             raise
-
+        
     def update_all_account_metrics(self, data_dir):
         """Sync all account metrics to a single sheet"""
         sheet_name = 'account_metrics'

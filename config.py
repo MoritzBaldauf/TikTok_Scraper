@@ -12,7 +12,7 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 # Timeouts and thresholds
 DEFAULT_TIMEOUT = 30000  # 30 seconds in milliseconds
 SHARE_TIMEOUT = 5000
-NEW_VIDEO_THRESHOLD = 60  # Hours to consider a video as "new"
+NEW_VIDEO_THRESHOLD = 10  # Hours to consider a video as "new"
 
 # Rate limiting
 MIN_DELAY = 3  # Minimum delay between requests in seconds
@@ -27,5 +27,5 @@ EXCLUDE_PINNED_VIDEOS = True  # Set to True to exclude pinned videos from collec
 
 SHEETS_CREDS = "./credentials/credentials.json"  # Path to your Google Sheets credentials
 SPREADSHEET_ID = "1gPiwtjbz7_sRDrUAfmzqWRI2IlRUwoeIFQ9gIPosJQs"  # Your Google Sheets spreadsheet ID
-ACCOUNTS = ["luminews.my", "boom.malaysia", "carlsonchia_oe", "ashhryyyyy", "dagangnews", "ohbulanofficial", "majoritiofficial", "wekaypoh", "goodnewsfromindonesia", "baseless.indo", "uzoneindonesia", "joyalcala_26", "rappler"]  # Your TikTok accounts
+ACCOUNTS = ["luminews.my", "boom.malaysia", "carlsonchia_oe", "dagangnews", "ohbulanofficial", "majoritiofficial", "wekaypoh", "goodnewsfromindonesia", "baseless.indo", "uzoneindonesia", "joyalcala_26", "rappler"]  # Your TikTok accounts
 INTERVAL_HOURS = 12  # Hours between runs

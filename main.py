@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import os
 import sys
 import random
+from connection_manager import ConnectionManager
 
 # Configure logging
 logging.basicConfig(

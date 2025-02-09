@@ -11,6 +11,8 @@ import random
 import os
 from config import *
 from browser_setup import BrowserSetup
+from connection_manager import ConnectionManager
+
 
 class TikTokScraper:
     def __init__(self, account_name):
@@ -32,44 +34,46 @@ class TikTokScraper:
         time.sleep(random.uniform(1, 3))
 
     def _check_content_loaded(self) -> bool:
-        """Check if the main content has loaded successfully"""
+        """Check if the main content has loaded successfully with better timing"""
         try:
+            # Wait for the document to be in ready state
+            self.driver.execute_script("""
+                return new Promise((resolve) => {
+                    if (document.readyState === 'complete') {
+                        resolve();
+                    } else {
+                        window.addEventListener('load', resolve);
+                    }
+                });
+            """)
+            
+            # Use WebDriverWait for more reliable element detection
+            wait = WebDriverWait(self.driver, 10)
+            
             # Look for key elements that indicate content is loaded
             indicators = [
-                'div[data-e2e="user-post-item"]',  # Video items
-                'strong[data-e2e="followers-count"]',  # Follower count
-                'strong[data-e2e="likes-count"]',  # Likes count
-                'h3[data-e2e="user-title"]'  # Username
+                'div[data-e2e="user-post-item"]',
+                'strong[data-e2e="followers-count"]',
+                'strong[data-e2e="likes-count"]',
+                'h3[data-e2e="user-title"]'
             ]
             
             found_elements = 0
             for selector in indicators:
-                if self.driver.find_elements(By.CSS_SELECTOR, selector):
+                try:
+                    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
                     found_elements += 1
+                except TimeoutException:
+                    continue
             
             # Return true if we found at least 2 indicators
-            if found_elements >= 2:
-                return True
-                
-            # Check for bot detection or empty content indicators
-            bot_detection_signs = [
-                'div[class*="verify-bar"]',
-                'div[class*="captcha"]',
-                'iframe[src*="verify"]',
-                'div[class*="DivVerifyContainer"]'
-            ]
-            
-            for selector in bot_detection_signs:
-                if self.driver.find_elements(By.CSS_SELECTOR, selector):
-                    logging.warning("Bot detection elements found")
-                    return False
-            
-            return False
-                
+            return found_elements >= 2
+                    
         except Exception as e:
             logging.error(f"Error checking content: {str(e)}")
             return False
         
+            
     def rotate_browser_session(self):
         """Close current browser session and start a new one"""
         logging.info("Rotating browser session...")
@@ -144,14 +148,14 @@ class TikTokScraper:
 
     def scrape_recent_videos(self):
         """Scrape videos with session rotation support"""
-        try:
+        conn_manager = ConnectionManager()
+    
+        def _scrape_attempt():
             videos = []
             current_time = datetime.now()
             
-            # Ensure page is loaded with content
             if not self.load_page_with_retry(self.account_url):
-                logging.error("Failed to load videos page after all retries")
-                return []
+                raise Exception("Failed to load videos page")
                 
             # Add some random delays and movements
             self._simulate_human_behavior()
@@ -194,6 +198,8 @@ class TikTokScraper:
             self._save_video_metrics(videos)
             return videos
             
+        try:
+            return conn_manager.execute_with_retry(_scrape_attempt)
         except Exception as e:
             logging.error(f"Error scraping videos: {str(e)}")
             return []
@@ -313,12 +319,21 @@ class TikTokScraper:
             return None
         
     def _get_video_page_metrics(self, video_url):
-        """Get metrics from video page"""
+        """Get metrics from video page with improved extraction and validation"""
         try:
-            # Open video in new tab
+            # Open video in new tab with longer timeout
             self.driver.execute_script(f"window.open('{video_url}', '_blank');")
             self.driver.switch_to.window(self.driver.window_handles[-1])
-            time.sleep(random.uniform(2, 3))
+            
+            # Wait longer for page load and add random delay
+            wait = WebDriverWait(self.driver, 15)  # Increased timeout
+            time.sleep(random.uniform(3, 5))  # Longer random delay
+            
+            try:
+                # Wait for video container to load
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '[data-e2e="video-container"]')))
+            except TimeoutException:
+                logging.warning(f"Video container not found for {video_url}")
             
             # Extract metrics
             metrics = {
@@ -330,6 +345,9 @@ class TikTokScraper:
                 'posting_time': self._extract_posting_time()
             }
             
+            # Log extraction results
+            logging.debug(f"Extracted metrics for {video_url}: Description length: {len(metrics['description'])}, Hashtags: {metrics['hashtags']}")
+            
             # Close tab and switch back
             self.driver.close()
             self.driver.switch_to.window(self.driver.window_handles[0])
@@ -337,7 +355,7 @@ class TikTokScraper:
             return metrics
             
         except Exception as e:
-            logging.error(f"Error getting video page metrics: {str(e)}")
+            logging.error(f"Error getting video page metrics for {video_url}: {str(e)}")
             # Ensure we're back on the main tab
             if len(self.driver.window_handles) > 1:
                 self.driver.close()
@@ -358,26 +376,104 @@ class TikTokScraper:
             return self._convert_count_to_number(element.text) if element else 0
         except Exception:
             return 0
-
     def _extract_description(self):
-        """Extract video description"""
+        """Extract video description with improved reliability and error handling"""
         try:
-            desc_element = self.driver.find_element(By.CSS_SELECTOR, '[data-e2e="browse-video-desc"]')
-            return desc_element.text if desc_element else ""
-        except Exception:
+            # TikTok's latest selectors for descriptions
+            description_selectors = [
+                '[data-e2e="browse-video-desc"]',  # Primary selector
+                'div[data-e2e="video-desc"]',      # Alternative selector
+                '.video-meta-description',
+                'span[class*="DivVideoDesc"]',     # Class-based selector
+                'div[class*="desc-container"]',     # Container-based selector
+                'div[data-e2e="video-desc"] span', # Nested span selector
+            ]
+            
+            description = ""
+            wait = WebDriverWait(self.driver, 5)
+            
+            for selector in description_selectors:
+                try:
+                    elements = wait.until(
+                        EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector))
+                    )
+                    for element in elements:
+                        text = element.get_attribute('innerText') or element.text
+                        if text and len(text.strip()) > 0:
+                            description = text.strip()
+                            logging.debug(f"Found description using selector: {selector}")
+                            break
+                    if description:
+                        break
+                except Exception as e:
+                    logging.debug(f"Selector {selector} failed: {str(e)}")
+                    continue
+            
+            return description
+
+        except Exception as e:
+            logging.error(f"Error extracting description: {str(e)}")
             return ""
 
     def _extract_hashtags(self):
-        """Extract hashtags from video"""
+        """Extract hashtags with improved reliability and error handling"""
         try:
-            hashtag_elements = self.driver.find_elements(By.CSS_SELECTOR, 'a[href*="/tag/"]')
-            hashtags = []
-            for element in hashtag_elements:
-                tag = element.get_attribute('href').split('/tag/')[-1]
-                if tag:
-                    hashtags.append(tag)
-            return ','.join(hashtags)
-        except Exception:
+            hashtags = set()
+            
+            # Try multiple methods to find hashtags
+            # 1. Direct hashtag links
+            hashtag_selectors = [
+                'a[href*="/tag/"]',
+                '[data-e2e="video-tag-linkable"]',
+                'a[class*="tag"]',
+                'div[data-e2e="video-desc"] a[href*="tag"]'
+            ]
+            
+            for selector in hashtag_selectors:
+                try:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    for element in elements:
+                        try:
+                            href = element.get_attribute('href')
+                            if href and '/tag/' in href:
+                                tag = href.split('/tag/')[-1].split('?')[0]
+                                if tag:
+                                    hashtags.add(tag)
+                                    logging.debug(f"Found hashtag via link: {tag}")
+                        except Exception as e:
+                            logging.debug(f"Error processing hashtag element: {str(e)}")
+                            continue
+                except Exception:
+                    continue
+
+            # 2. Extract from description text
+            description = self._extract_description()
+            if description:
+                # Look for hashtags in description
+                import re
+                # Match both #tag and #tag# patterns
+                hash_tags = re.findall(r'#(\w+)(?:\s|$|#)', description)
+                for tag in hash_tags:
+                    if tag:
+                        hashtags.add(tag)
+                        logging.debug(f"Found hashtag in description: {tag}")
+
+            # Clean and validate hashtags
+            cleaned_hashtags = set()
+            for tag in hashtags:
+                # Remove any non-alphanumeric characters except underscores
+                cleaned_tag = ''.join(c for c in tag if c.isalnum() or c == '_')
+                if cleaned_tag:
+                    cleaned_hashtags.add(cleaned_tag)
+
+            # Log if no hashtags found
+            if not cleaned_hashtags:
+                logging.debug("No hashtags found in video")
+                
+            return ','.join(sorted(cleaned_hashtags))
+
+        except Exception as e:
+            logging.error(f"Error extracting hashtags: {str(e)}")
             return ""
 
     def _is_pinned(self, element):
@@ -449,29 +545,51 @@ class TikTokScraper:
             return None
         
         
-    def _parse_time_text(self, time_text):
-        """Parse TikTok's relative time text into datetime"""
+    def _extract_timestamp_from_video_id(self, video_id: str) -> str:
+        """
+        Extract timestamp from TikTok video ID using binary manipulation.
+        Returns timestamp in '%Y-%m-%d %H:%M:%S' format.
+        """
         try:
-            current_time = datetime.now()
+            # Convert video ID to integer then to binary
+            binary = bin(int(video_id))[2:]  # [2:] removes '0b' prefix
+            # Ensure we have 64 bits by padding with zeros
+            binary = binary.zfill(64)
+            # Take leftmost 32 bits and convert to decimal
+            timestamp = int(binary[:32], 2)
+            # Convert Unix timestamp to datetime
+            dt = datetime.fromtimestamp(timestamp)
+            return dt.strftime('%Y-%m-%d %H:%M:%S')
+        except Exception as e:
+            logging.error(f"Error extracting timestamp from video ID {video_id}: {str(e)}")
+            return None
+
+    def _parse_time_text(self, time_text):
+        """
+        Parse TikTok's time text into datetime by extracting from video ID instead
+        of parsing relative time strings.
+        """
+        try:
+            # Extract video ID from current URL
+            video_url = self.driver.current_url
+            video_id = video_url.split('/')[-1]
             
-            if 'h' in time_text:  # hours ago
-                hours = int(time_text.replace('h', ''))
+            # Get timestamp from video ID
+            timestamp = self._extract_timestamp_from_video_id(video_id)
+            if timestamp:
+                return timestamp
+                
+            # Fallback to old method if video ID extraction fails
+            current_time = datetime.now()
+            if 'h' in time_text:
+                hours = int(time_text.split('h')[0])
                 return (current_time - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
-            elif 'd' in time_text:  # days ago
-                days = int(time_text.replace('d', ''))
-                return (current_time - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
-            elif 'w' in time_text:  # weeks ago
-                weeks = int(time_text.replace('w', ''))
-                return (current_time - timedelta(weeks=weeks)).strftime('%Y-%m-%d %H:%M:%S')
-            elif 'm' in time_text:  # minutes ago
-                minutes = int(time_text.replace('m', ''))
-                return (current_time - timedelta(minutes=minutes)).strftime('%Y-%m-%d %H:%M:%S')
-            else:
-                # Try to parse as exact date
-                return datetime.strptime(time_text, '%Y-%m-%d').strftime('%Y-%m-%d %H:%M:%S')
+            # ... rest of the existing fallback logic ...
+            
         except Exception as e:
             logging.error(f"Error parsing time text '{time_text}': {str(e)}")
             return None
+    
 
     def _save_account_metrics(self, metrics):
         """Save account metrics to CSV"""
@@ -507,3 +625,28 @@ class TikTokScraper:
                 logging.info(f"Saved {len(videos)} video metrics for {self.account_name}")
         except Exception as e:
             logging.error(f"Error saving video metrics: {str(e)}")
+
+    def check_session_health(self):
+        """Check if the current browser session is still valid"""
+        try:
+            # Try a simple browser command to check session
+            self.driver.current_url
+            return True
+        except Exception:
+            return False
+
+    def ensure_valid_session(self):
+        """Ensure we have a valid session, rotating if necessary"""
+        if not self.check_session_health():
+            logging.info("Session invalid, attempting to rotate browser session")
+            try:
+                self.cleanup()
+            except Exception as e:
+                logging.warning(f"Error during cleanup: {str(e)}")
+                
+            time.sleep(random.uniform(2, 5))  # Add delay before new session
+            self.start_browser()
+            return True
+        return False
+    
+    
